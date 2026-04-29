@@ -21,6 +21,7 @@ library(mmsd.sysmon)
 library(tidyverse)
 library(lubridate)
 library(gt)
+gt::opts_knit$set(table_output = "latex")
 
 param_tbl <- tribble(
   ~varnum, ~parameter_name, ~limit, ~method,
@@ -191,8 +192,7 @@ exceedance_tbl <- tribble(
     align = "center",
     columns = everything())
 
-gtsave(exceedance_tbl, "exceedance_tbl.png", vwidth = 1400, vheight = 900)
-knitr::include_graphics("exceedance_tbl.png")
+exceedance_tbl
 
 ```
 
@@ -318,11 +318,10 @@ html( "<span style='color:#c92c3a;'> Red </span> values exceed current limit of 
     )
     )
   
-gtsave(tp_tbl, "tp_tbl.png")
 
 #lets insert this table below
-knitr::include_graphics("tp_tbl.png")
 
+tp_tbl
 
 ```
 
@@ -473,8 +472,7 @@ html( "<span style='color:#c92c3a;'> Red </span> values exceed current limit of 
     )
     )
 
-gtsave(tss_tbl, "tss_tbl.png")
-knitr::include_graphics("tss_tbl.png")
+tss_tbl
 
 
 
@@ -693,8 +691,7 @@ html(paste("<span style='color:#c92c3a;'> Red </span> values exceed the contract
     )
     )) 
 
-gtsave(bod_tbl, "bod_tbl.png")
-knitr::include_graphics("bod_tbl.png")
+bod_tbl
 
 
 ```
@@ -845,8 +842,7 @@ html(paste("<span style='color:#c92c3a;'> Red </span> values exceed current limi
     ))
 
 
-gtsave(tn_tbl, "tn_tbl.png")
-knitr::include_graphics("tn_tbl.png")
+tn_tbl
 
 ```
 
@@ -1054,8 +1050,7 @@ html(paste("<span style='color:#c92c3a;'> Red </span> values exceed contract lim
     )
     ))
 
-gtsave(fecal_tbl, "fecal_tbl.png")
-knitr::include_graphics("fecal_tbl.png")
+fecal_tbl
 
 ```
 
