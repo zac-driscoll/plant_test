@@ -331,9 +331,11 @@ tp_tbl <- results %>%
   #   )
   # ) |>
     tab_source_note(
-    source_note = html(paste(
-html( "<span style='color:#c92c3a;'> Red </span> values exceed current limit of 0.50mg/L."))
-    )
+      source_note = if (knitr::is_latex_output()) {
+        md("\\textcolor[HTML]{C92C3A}{Red} values exceed current limit of 0.50mg/L.")
+      } else {
+        html("<span style='color:#c92c3a;'> Red </span> values exceed current limit of 0.50mg/L.")
+      }
     )
   
 
@@ -465,9 +467,11 @@ tss_tbl <-
   #   )
   # ) |>
     tab_source_note(
-    source_note = html(paste(
-html( "<span style='color:#c92c3a;'> Red </span> values exceed current limit of 15mg/L."))
-    )
+      source_note = if (knitr::is_latex_output()) {
+        md("\\textcolor[HTML]{C92C3A}{Red} values exceed current limit of 15mg/L.")
+      } else {
+        html("<span style='color:#c92c3a;'> Red </span> values exceed current limit of 15mg/L.")
+      }
     )
 
 tss_tbl
@@ -604,9 +608,11 @@ bod_tbl <-
   #   )
   # ) |>
     tab_source_note(
-    source_note = html(paste(
-html(paste("<span style='color:#c92c3a;'> Red </span> values exceed current limit of 15mg/L."))
-    )
+      source_note = if (knitr::is_latex_output()) {
+        md("\\textcolor[HTML]{C92C3A}{Red} values exceed current limit of 15mg/L.")
+      } else {
+        html("<span style='color:#c92c3a;'> Red </span> values exceed current limit of 15mg/L.")
+      }
     )) 
 
 bod_tbl
@@ -738,9 +744,11 @@ tn_tbl <- results |>
   #   )
   # ) |>
     tab_source_note(
-    source_note = html(paste(
-html(paste("<span style='color:#c92c3a;'> Red </span> values exceed current limit of 5mg/L."))
-    )
+      source_note = if (knitr::is_latex_output()) {
+        md("\\textcolor[HTML]{C92C3A}{Red} values exceed current limit of 5mg/L.")
+      } else {
+        html("<span style='color:#c92c3a;'> Red </span> values exceed current limit of 5mg/L.")
+      }
     ))
 
 
@@ -780,10 +788,11 @@ limit_labels <- data.frame(
   label = c("    Historic Limit \n (100 CFU/100mL)", "    Current Limit \n (200 CFU/100mL)")
 )
 
-plot_caption <- html(paste(
-  "<span style='color:blue;'> Blue </span> Historic limit: 100CFU/mL. <br>",
-  "<span style='color:red;'> Red </span> Current limit: 200CFU/mL."
-))
+plot_caption <- if (knitr::is_latex_output()) {
+  '\\textcolor{blue}{Blue} Historic limit: 100CFU/mL. \\textcolor{red}{Red} Current limit: 200CFU/mL.'
+} else {
+  "<span style='color:blue;'> Blue </span> Historic limit: 100CFU/mL. <br><span style='color:red;'> Red </span> Current limit: 200CFU/mL."
+}
 
 ggplot(data = bod_dat) +
   geom_line(aes(x = month, y = value)) +
@@ -914,9 +923,11 @@ fecal_tbl <- results |>
    #    rows = 6
    #  )) |>
     tab_source_note(
-    source_note = html(paste(
-html(paste("<span style='color:#c92c3a;'> Red </span> values exceed contract limit."))
-    )
+      source_note = if (knitr::is_latex_output()) {
+        md("\\textcolor[HTML]{C92C3A}{Red} values exceed contract limit.")
+      } else {
+        html("<span style='color:#c92c3a;'> Red </span> values exceed contract limit.")
+      }
     ))
 
 
@@ -950,5 +961,4 @@ Missing data observations are noted as follows:
 
 
 </span>
-
 
