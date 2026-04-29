@@ -21,7 +21,7 @@ library(mmsd.sysmon)
 library(tidyverse)
 library(lubridate)
 library(gt)
-gt::opts_knit$set(table_output = "latex")
+knitr::opts_knit$set(table_output = "latex")
 
 param_tbl <- tribble(
   ~varnum, ~parameter_name, ~limit, ~method,
