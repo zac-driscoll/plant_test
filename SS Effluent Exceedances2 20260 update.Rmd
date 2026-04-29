@@ -1,14 +1,21 @@
 ---
 title: "South Shore Effluent Exceedance Analysis"
 date: "`r Sys.Date()`"
-output: html_document
+output:
+  pdf_document:
+    latex_engine: xelatex
+    fig_caption: false
+geometry: margin=0.7in
 editor_options: 
   markdown: 
     wrap: 72
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE, fig.width =7.5)
+knitr::opts_chunk$set(
+  echo = FALSE, warning = FALSE, message = FALSE,
+  fig.width = 6.5, fig.height = 4.5, out.width = "100%", dpi = 300
+)
 
 library(mmsd.sysmon)
 library(tidyverse)
@@ -27,12 +34,12 @@ param_tbl <- tribble(
   
 ss_dat <- get_wims_data(varnum = c(param_tbl$varnum), 
                         start_date = "2009-01-01", 
-                        end_date = "2026-04-30",
+                        end_date = "2026-04-29",
                         db_name = "wims_ji")
 
 
 #find missing data
-all_dates <- seq(min(as.Date("2008-01-01")), max(as.Date("2024-05-31")), by = "day")
+all_dates <- seq(min(as.Date("2008-01-01")), max(as.Date("2026-04-29")), by = "day")
 
 missing_dates <- tibble(
   date_time = all_dates) |>
@@ -105,7 +112,7 @@ exceedance_n <-
 
 
 #find missing data
-all_dates <- seq(min(as.Date("2019-01-01")), max(as.Date("2024-05-31")), by = "day")
+all_dates <- seq(min(as.Date("2019-01-01")), max(as.Date("2026-04-29")), by = "day")
 
 missing_dates <- tibble(
   date_time = all_dates) |>
@@ -184,7 +191,7 @@ exceedance_tbl <- tribble(
     align = "center",
     columns = everything())
 
-gtsave(exceedance_tbl, "exceedance_tbl.png")
+gtsave(exceedance_tbl, "exceedance_tbl.png", vwidth = 1400, vheight = 900)
 knitr::include_graphics("exceedance_tbl.png")
 
 ```
