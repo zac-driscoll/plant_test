@@ -1,0 +1,1084 @@
+---
+title: "South Shore Effluent Exceedance Analysis"
+date: "`r Sys.Date()`"
+output: html_document
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE, fig.width =7.5)
+
+library(mmsd.sysmon)
+library(tidyverse)
+library(lubridate)
+library(gt)
+
+param_tbl <- tribble(
+  ~varnum, ~parameter_name, ~limit, ~method,
+  6731, "BOD5", 15, "mean",
+  6731, "BOD5", 20, "mean",
+  6730, "TSS", 15, "mean",
+  6736, "TP", 1, "mean",
+  6738, "TN", 5, "mean",
+  6739, "Fecal Coliform", 200 , "geo_mean")
+  
+  
+ss_dat <- get_wims_data(varnum = c(param_tbl$varnum), 
+                        start_date = "2009-01-01", 
+                        end_date = "2026-04-30",
+                        db_name = "wims_ji")
+
+
+#find missing data
+all_dates <- seq(min(as.Date("2008-01-01")), max(as.Date("2024-05-31")), by = "day")
+
+missing_dates <- tibble(
+  date_time = all_dates) |>
+  left_join(ss_dat |> select(date_time,varnum)) |>
+  count(date_time) |> 
+  filter(n != 5)  |>
+  pull(date_time) 
+
+missing_params <- 
+  ss_dat |>
+  select(date_time, var_name) |>
+  filter(date_time %in% missing_dates) |>
+  pivot_wider(names_from = var_name, values_from = var_name, values_fn = length) |>
+  arrange(date_time)
+
+#create a function to calculate monthly mean and geo mean
+calc_monthly_mean <- function(data, var){
+  data |>
+    filter(varnum == var) |>
+    mutate(month = floor_date(date_time, "month")) |>
+    group_by(month) |>
+    summarise(value = mean(value, na.rm = TRUE)) |>
+    select(month, value) |>
+    mutate(varnum = var, method = "mean")
+}
+
+calc_monthly_geo_mean <- function(data, var){
+  data |>
+    filter(varnum == var) |>
+    mutate(month = floor_date(date_time, "month")) |>
+    group_by(month) |>
+    summarise(value = exp(mean(log(value), na.rm = TRUE))) |>
+    select(month, value) |>
+    mutate(varnum = var, method = "geo_mean")
+}
+
+#apply the function to all the parameters
+mean_Vars <- param_tbl |> filter(method == "mean") |> pull(varnum) |> unique()
+monthly_means <- map_df(.x = mean_Vars, .f = ~calc_monthly_mean(ss_dat, .x))
+
+geo_mean_Vars <- param_tbl |> filter(method == "geo_mean") |> pull(varnum) |> unique()
+monthly_geo_means <- map_df(.x = geo_mean_Vars, .f = ~calc_monthly_geo_mean(ss_dat, .x))
+
+results <-
+  bind_rows(monthly_means, monthly_geo_means) |>
+  left_join(param_tbl |> select(varnum, parameter_name) |> distinct()) |>
+  mutate(value = if_else(!parameter_name %in% c(
+    "TP", "TN"), round(value, digits = 0),
+    round(value, digits = 1)
+  ))
+
+#calculate limit exceedances
+exceedance_months <-  
+  results |>
+  left_join(param_tbl |> select(varnum, limit), by = c("varnum" = "varnum")) |>
+  mutate(exceedance = if_else(value > limit, TRUE, FALSE)) |>
+  filter(exceedance == TRUE) |>
+  mutate(date = month,
+         month = month(date,label = TRUE),
+         year = year(date)) |>
+  select(year, month, value, limit, varnum, parameter_name) |>
+  arrange(year, month) |>
+  rename(Year = year, Month = month, Value = value, Limit = limit,
+         Parameter = parameter_name, Varnum = varnum) |>
+  mutate(Value = round(Value,digits = 2))
+
+exceedance_n <-
+  exceedance_months |>
+  count(Varnum,Parameter, Limit) 
+
+
+#find missing data
+all_dates <- seq(min(as.Date("2019-01-01")), max(as.Date("2024-05-31")), by = "day")
+
+missing_dates <- tibble(
+  date_time = all_dates) |>
+  left_join(ss_dat |> select(date_time,varnum)) |>
+  count(date_time) |>
+  filter(n != 5)  |>
+  pull(date_time)
+
+```
+
+## Background and Methods
+
+<span style = "font-size:16px">
+This report provides an overview of the South Shore effluent data collected from 2009 to the present. The starting year of 2009 was chosen due to the availability of data within the WIMS database. To identify exceedances, analyses were performed where select parameters were compared against their contract discharge limits. Parameters included within the analyses were as follows: Total Phosphorus (TP), Total Suspended Solids (TSS), Biochemical Oxygen Demand (BOD5), Nitrogen Ammonia Total (NH3-N), and Fecal Coliform.
+
+</span>
+
+<span style = "font-size:16px">
+Contract limits for each of the parameters are listed below. For BOD5 and fecal coliform,
+both current and historical limits were analyzed. For all parameters.
+values were rounded to match the number of significant figures included
+within their contract limits. For values below detection limits or too
+numerous to count, signs like “\>” or “\<” were omitted. Missing data are noted 
+in the appendix of this report.  </span>
+
+<br>
+<br>
+<hr>
+
+
+```{r, fig.align = 'center'}
+
+exceedance_tbl <- tribble(
+  ~Parameter, ~Limit, ~Metric, ~'Exceedances', ~'Date Range',
+  "TP", "1.0 mg/L", "Monthly Mean", 0,'2009 - Present',
+  "TSS", "15 mg/L","Monthly Mean", 3,'2009 - Present',
+  "BOD5 (Historic)", "15 mg/L","Monthly Mean", 7, '2009 - Dec 2023',
+  "BOD5 (Current)", "20 mg/L","Monthly Mean", 0, 'Jan 2024 - Present', 
+  "NH3-N", "5.0 mg/L","Monthly Mean", 2, '2009 - Present' ,
+  "Fecal coliform (Historic) ", "100 CFU/100mL","Geometric Mean", 7, '2009 - Jul 2023',
+  "Fecal coliform (Current)", "200 CFU/100mL","Geometric Mean", 1, 'Aug 2023 - Present' ) |>
+  gt() |>
+  tab_header(
+    title = "Summary of Exceedances"
+  ) |>
+  tab_options(
+    table.border.top.width = px(2),
+    table.border.bottom.width = px(2),
+    table.font.size = px(18),
+    column_labels.border.bottom.width = px(2),
+    data_row.padding = px(5),
+    column_labels.padding = px(5),
+    heading.title.font.size = px(25),
+    heading.subtitle.font.size = px(20)
+  ) |>
+  tab_style(
+    style = list(
+      cell_borders(sides = "top", color = "gray85", style = "solid", weight = px(0.5)),
+      cell_borders(sides = "bottom", color = "gray85", style = "solid", weight = px(0.5)),
+      cell_fill(color = "lightgray")
+    ),
+    locations = cells_body(columns = vars(Parameter))
+  ) |>
+  tab_style(
+    style = cell_fill(color = "lightgray"),
+    locations = cells_column_labels(columns = TRUE)
+  ) |>
+  tab_style(
+    style = list(
+      cell_borders(sides = "left", color = "gray85", style = "solid", weight = px(0.5)),
+      cell_borders(sides = "right", color = "gray85", style = "solid", weight = px(0.5))
+    ),
+    locations = cells_body(rows = TRUE)
+  ) |>
+  cols_align(
+    align = "center",
+    columns = everything())
+
+gtsave(exceedance_tbl, "exceedance_tbl.png")
+knitr::include_graphics("exceedance_tbl.png")
+
+```
+
+<hr> 
+<br>
+<br>
+<br>
+
+# Total Phosphorus
+
+<br>
+
+```{r tp, fig.width=7, fig.align='center', fig.height=5}
+tss_dat <- filter(results, varnum == 6736)
+tss_dat <- mutate(tss_dat,Exceedance =  if_else(value > 1, "1mg/L Limit","None"))
+
+limit_labels <-
+  data.frame(
+    x = c(ymd_hms("2020-01-01 00:00:00"), ymd_hms("2020-01-01 00:00:00")),
+    y = c(1),
+    label = c("Limit (1 mg/L)"))
+
+ggplot(data = tss_dat) +
+  geom_line(aes(x = month, y = value)) +
+  geom_point(aes(x = month, y = value, color = Exceedance), size = 2) +
+  geom_hline(yintercept = 1, linetype = "dashed", color = '#c92c3a') +
+  geom_text(data = limit_labels, aes(x = x, y = y, label = label), vjust = -1, size = 4) +
+  labs(title = "South Shore Effluent Total Phosphorus Concentration",
+       subtitle = "Values represent monthly means",
+       y = "Total Phosphorus (mg/L)",
+       x = "") +
+  theme_classic()  +
+  theme(axis.text = element_text(size = 12),
+        title = element_text(size = 15),
+        legend.position = "none",
+        axis.title = element_text(size = 13)) +
+  scale_color_manual(values = c("gray20","darkred")) +
+  ylim(0,1.25) +
+  xlim(as.POSIXct("2008-12-15"), as.POSIXct("2026-04-30")) 
+
+
+```
+
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+
+
+# Total Phosphorus (cont.)
+
+<br>
+
+```{r, fig.width = 10, fig.align = 'center'}
+
+tp_tbl <- results %>%
+  mutate(Year = year(month),
+         Month = month(month, label = TRUE)) %>%
+  filter(parameter_name == "TP") %>%
+  mutate(Value = round(value, digits = 2)) %>%
+  select(Year, Month, Value) %>%
+  pivot_wider(names_from = Month, values_from = Value) %>%
+  gt() %>%
+  tab_header(
+    title = "South Shore Effluent TP Concentration (mg/L)",
+    subtitle = "Values represent monthly means"
+  ) %>%
+  tab_options(
+    table.border.top.width = px(2),
+    table.border.bottom.width = px(2),
+    table.font.size = px(18),
+    column_labels.border.bottom.width = px(2),
+    data_row.padding = px(5),
+    column_labels.padding = px(5),
+    heading.title.font.size = px(25),
+    heading.subtitle.font.size = px(20)
+  ) %>%
+  tab_style(
+    style = list(
+      cell_borders(sides = "top", color = "gray85", style = "solid", weight = px(0.5)),
+      cell_borders(sides = "bottom", color = "gray85", style = "solid", weight = px(0.5)),
+      cell_fill(color = "lightgray")
+    ),
+    locations = cells_body(columns = vars(Year))
+  ) %>%
+  tab_style(
+    style = cell_fill(color = "lightgray"),
+    locations = cells_column_labels(columns = TRUE)
+  ) %>%
+  tab_style(
+    style = list(
+      cell_borders(sides = "left", color = "gray85", style = "solid", weight = px(0.5)),
+      cell_borders(sides = "right", color = "gray85", style = "solid", weight = px(0.5))
+    ),
+    locations = cells_body(rows = TRUE)
+  ) %>%
+  # data_color(
+  #   columns = lubridate::month(1:12,label = TRUE),  # Adjust to your actual month column names
+  #   colors = scales::col_bin(
+  #     bins = c(1, 2, 3),
+  #     palette = c("darkred", "darkred"),
+  #     domain = NULL
+  #   )
+  # ) |>
+    tab_source_note(
+    source_note = html(paste(
+html( "<span style='color:#c92c3a;'> Red </span> values exceed current limit of 1mg/L."))
+    )
+    )
+  
+gtsave(tp_tbl, "tp_tbl.png")
+
+#lets insert this table below
+knitr::include_graphics("tp_tbl.png")
+
+
+```
+
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+
+
+# Total Suspended Solids
+
+<br>
+
+```{r, tss}
+tss_dat <- filter(results, varnum == 6730)
+tss_dat <- mutate(tss_dat,Exceedance =  if_else(value > 15, "15mg/L Limit","None"))
+
+limit_labels <-
+  data.frame(
+    x = c(ymd_hms("2020-01-01 00:00:00"), ymd_hms("2020-01-01 00:00:00")),
+    y = c(15),
+    label = c("Limit (15 mg/L)"))
+    
+ggplot(data = tss_dat) +
+  geom_line(aes(x = month, y = value)) +
+  geom_point(aes(x = month, y = value, color = Exceedance), size = 2) +
+  geom_hline(yintercept = 15, linetype = "dashed", color = '#c92c3a') +
+  geom_text(data = limit_labels, aes(x = x, y = y, label = label), vjust = -1) +
+  labs(title = "South Shore Effluent Total Suspended Solids Concentration",
+       subtitle = "Values represent monthly means",
+       y = "TSS (mg/L)",
+       x = "") +
+  theme_classic() +
+  #lets make the points gray if exceedance is no and dark red if yes
+  scale_color_manual(values = c("#c92c3a", "gray20")) +
+    theme(axis.text = element_text(size = 12),
+        title = element_text(size = 15),
+        legend.text = element_text(size = 12),
+        axis.title = element_text(size = 13),
+        legend.position = "none")  +
+    xlim(as.POSIXct("2008-12-15"), as.POSIXct("2026-04-30")) 
+  
+```
+
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+
+
+# Total Suspended Solids (cont.)
+
+<br>
+
+```{r tss_tbl, fig.align = 'center'}
+
+tss_tbl <- 
+  results |>
+  mutate(Year =year(month),
+         Month = month(month, label = TRUE)) |>
+  filter(parameter_name == "TSS") |>
+  mutate(Value = round(value, digits = 2)) |>
+  select(Year, Month, Value) |>
+  pivot_wider(names_from = Month, values_from = Value) |>
+  gt() %>%
+  tab_header(
+    title = "South Shore Effluent TSS Concentration (mg/L)",
+    subtitle  = "Values represent monthly means",
+  ) %>%
+  tab_options(
+    table.border.top.width = px(2),
+    table.border.bottom.width = px(2),
+    column_labels.border.bottom.width = px(2),
+    data_row.padding = px(5),
+    table.font.size = px(18),
+    column_labels.padding = px(5),
+    heading.title.font.size = px(25),
+    heading.subtitle.font.size = px(20)
+  ) %>%
+  tab_style(
+    style = list(
+      cell_borders(sides = "top", color = "gray85", style = "solid", weight = px(0.5)),
+      cell_borders(sides = "bottom", color = "gray85", style = "solid", weight = px(0.5)),
+      cell_fill(color = "lightgray")
+    ),
+    locations = cells_body(columns = vars(Year))
+  ) %>%
+  tab_style(
+    style = cell_fill(color = "lightgray"),
+    locations = cells_column_labels(columns = TRUE)
+  ) %>%
+  tab_style(
+    style = list(
+      cell_borders(sides = "left", color = "gray85", style = "solid", weight = px(0.5)),
+      cell_borders(sides = "right", color = "gray85", style = "solid", weight = px(0.5))
+    ),
+    locations = cells_body(rows = TRUE)
+  ) %>%
+  # data_color(
+  #   columns = lubridate::month(1:12,label = TRUE),  # Adjust to your actual month column names
+  #   autocolor_text = FALSE,
+  #   colors = scales::col_bin(
+  #     bins = c(15.0001, 20, 25),
+  #     palette = c("darkred", "darkred"),
+  #     domain = NULL
+  #   )
+  # ) |>
+  
+         tab_style(
+    style = cell_fill(color = '#c92c3a'),
+    locations = cells_body(
+      columns = c(Jul),
+      rows = 9
+    )) |>
+       tab_style(
+    style = cell_fill(color = '#c92c3a'),
+    locations = cells_body(
+      columns = c(Aug),
+      rows = 15
+    )) |>
+  
+       tab_style(
+    style = cell_fill(color = '#c92c3a'),
+    locations = cells_body(
+      columns = c(Oct),
+      rows = 15
+    )) |>
+    tab_source_note(
+    source_note = html(paste(
+html( "<span style='color:#c92c3a;'> Red </span> values exceed current limit of 15mg/L."))
+    )
+    )
+
+gtsave(tss_tbl, "tss_tbl.png")
+knitr::include_graphics("tss_tbl.png")
+
+
+
+```
+
+
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+
+
+# 5-Day Biochemical Oxygen Demand
+
+<br>
+
+```{r bod}
+# Data preparation
+bod_dat <- filter(results, varnum == 6731)
+bod_dat <- mutate(bod_dat,
+                  value = round(value, digits = 0),
+                  Exceedance = case_when(
+                    value > 20 & year(month) == year('2024-01-01') ~ "Current Limit (20 mg/L)",
+                    value > 15 & year(month) < year('2024-01-01') ~ "Historic Limit (15 mg/L)",
+                    TRUE ~ "None"))
+
+# Ensure 'month' is in POSIXct format
+bod_dat <- mutate(bod_dat, month = as.POSIXct(month))
+
+# Limit labels data
+limit_labels <- data.frame(
+  start = as.POSIXct(c(ymd('2015-01-01'), ymd("2021-05-25"))),
+  y = c(15, 18.25),
+  label = c("Historic Limit (15 mg/L)", "Current \n Limit (20 mg/L)")
+)
+
+# Plotting
+ggplot(data = bod_dat) +
+  geom_line(aes(x = month, y = value)) +
+  geom_point(aes(x = month, y = value, color = Exceedance), size = 2) +
+  geom_segment(
+    aes(
+      x = min(bod_dat$month),
+      xend = as.POSIXct("2023-12-15"),
+      y = 15,
+      yend = 15
+    ),
+    color = "#c92c3a",
+    linetype = "dashed"
+  ) +
+  geom_segment(
+    aes(
+      x = as.POSIXct("2023-12-20"),
+      xend = as.POSIXct("2024-08-30"),
+      y = 20,
+      yend = 20
+    ),
+    color = "#c92c3a",
+    linetype = "dashed"
+  ) +
+  geom_segment(
+    x = as.POSIXct("2023-12-01"),
+    xend = as.POSIXct("2022-10-01"),
+    y = 20,
+    yend = 21,
+    color = "black",
+    linetype  = "solid"
+  ) +
+  geom_text(data = limit_labels,
+            aes(x = start, y = y, label = label),
+            vjust = -1) +
+  labs(
+    title = "South Shore Effluent Total BOD5 Concentration",
+    subtitle = "Values represent monthly means",
+    y = "BOD5 (mg/L)",
+    x = ""
+  ) +
+  theme_classic() +
+  scale_color_manual(
+    values = c(
+      "None" = "gray20",
+      "Historic Limit (15 mg/L)" = "#c92c3a",
+      "Current Limit (20 mg/L)" = "#c92c3a"
+    )
+  ) +
+  theme(
+    axis.text = element_text(size = 12),
+    title = element_text(size = 15),
+    axis.title = element_text(size = 13),
+    legend.text = element_text(size = 12),
+    legend.position = "none"
+  ) +
+  xlim(as.POSIXct("2008-12-15"), as.POSIXct("2024-08-30")) +
+  ylim(0,23)
+```
+
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+
+
+# 5-Day Biochemical Oxygen Demand (cont.)
+
+<br>
+
+```{r, fig.align = 'center'}
+bod_tbl <- 
+  results |>
+  mutate(Year =year(month),
+         Month = month(month, label = TRUE)) |>
+  filter(parameter_name == "BOD5") |>
+  mutate(Value = round(value, digits = 0)) |>
+  select(Year, Month, Value) |>
+  pivot_wider(names_from = Month, values_from = Value) |>
+  gt() %>%
+  tab_header(
+    title = "South Shore Effluent BOD5 Concentration (mg/L)",
+    subtitle  = "Values represent monthly means",
+  ) %>%
+  tab_options(
+    table.border.top.width = px(2),
+    table.border.bottom.width = px(2),
+    column_labels.border.bottom.width = px(2),
+    data_row.padding = px(5),
+    table.font.size = px(18),
+    column_labels.padding = px(5),
+    heading.title.font.size = px(25),
+    heading.subtitle.font.size = px(20)
+  ) %>%
+  tab_style(
+    style = list(
+      cell_borders(sides = "top", color = "gray85", style = "solid", weight = px(0.5)),
+      cell_borders(sides = "bottom", color = "gray85", style = "solid", weight = px(0.5)),
+      cell_fill(color = "lightgray")
+    ),
+    locations = cells_body(columns = vars(Year))
+  ) %>%
+  tab_style(
+    style = cell_fill(color = "lightgray"),
+    locations = cells_column_labels(columns = TRUE)
+  ) %>%
+  tab_style(
+    style = list(
+      cell_borders(sides = "left", color = "gray85", style = "solid", weight = px(0.5)),
+      cell_borders(sides = "right", color = "gray85", style = "solid", weight = px(0.5))
+    ),
+    locations = cells_body(rows = TRUE)
+  ) %>%
+  
+     tab_style(
+    style = cell_fill(color = '#c92c3a'),
+    locations = cells_body(
+      columns = c(Jul),
+      rows = 9
+    )) |>
+  
+   tab_style(
+    style = cell_fill(color = '#c92c3a'),
+    locations = cells_body(
+      columns = c(Feb),
+      rows = 11
+    )) |>
+     tab_style(
+    style = cell_fill(color = '#c92c3a'),
+    locations = cells_body(
+      columns = c(Dec),
+      rows = 13
+    )) |>
+     tab_style(
+    style = cell_fill(color = '#c92c3a'),
+    locations = cells_body(
+      columns = c(Jan),
+      rows = 14
+    )) |>
+  
+     tab_style(
+    style = cell_fill(color = '#c92c3a'),
+    locations = cells_body(
+      columns = c(Feb),
+      rows = 15
+    )) |>
+     tab_style(
+    style = cell_fill(color = '#c92c3a'),
+    locations = cells_body(
+      columns = c(Jun),
+      rows = 15
+    )) |>
+  
+     tab_style(
+    style = cell_fill(color = '#c92c3a'),
+    locations = cells_body(
+      columns = c(Oct),
+      rows = 15
+    )) |>
+    tab_source_note(
+    source_note = html(paste(
+html(paste("<span style='color:#c92c3a;'> Red </span> values exceed the contract limit"))
+    )
+    )) 
+
+gtsave(bod_tbl, "bod_tbl.png")
+knitr::include_graphics("bod_tbl.png")
+
+
+```
+
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+
+
+
+# Nitrogen Ammonia Total
+
+<br>
+
+```{r tn}
+
+bod_dat <- filter(results, varnum == 6738)
+bod_dat <- mutate(bod_dat,Exceedance =  case_when(
+  value > 5 ~ "Limit (20 mg/L)", TRUE ~ "None"))
+limit_labels <-
+  data.frame(
+    x = c(ymd_hms("2020-02-28 00:00:00")),
+    y = c(5),
+    label = c( "Limit (5 mg/L)"))
+    
+ggplot(data = bod_dat) +
+  geom_line(aes(x = month, y = value)) +
+  geom_point(aes(x = month, y = value, color = Exceedance), size = 2) +
+  geom_hline(yintercept = 5, linetype = "dashed", color = '#c92c3a') +
+  geom_text(data = limit_labels, aes(x = x, y = y, label = label), vjust = -1, size = 4) +
+  labs(title = "South Shore Effluent Nitrogen Ammonia Total Concentration",
+       subtitle = "Values represent monthly means",
+       y = "NH3-N (mg/L)",
+       x = "") +
+  theme_classic() +
+  #lets make the points gray if exceedance is no, yellow if historic, and dark red if current
+  scale_color_manual(values = c('#c92c3a',"gray20")) +
+  ylim(0,9) +
+        theme(axis.text = element_text(size = 12),
+        title = element_text(size = 15),
+        axis.title = element_text(size = 13),
+        legend.text = element_text(size = 12),
+        legend.position = "none") +
+      xlim(as.POSIXct("2008-12-15"), as.POSIXct("2024-08-30")) 
+  
+
+```
+
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+
+
+# Nitrogen Ammonia Total (cont.)
+
+<br>
+
+```{r, fig.align = 'center'}
+
+tn_tbl <- results |>
+  mutate(Year =year(month),
+         Month = month(month, label = TRUE)) |>
+  filter(parameter_name == "TN") |>
+  mutate(Value = round(value, digits = 2)) |>
+  select(Year, Month, Value) |>
+  pivot_wider(names_from = Month, values_from = Value) |>
+  gt() %>%
+  tab_header(
+    title = "South Shore Effluent NH3-N Concentration (mg/L)",
+    subtitle  = "Values represent monthly means",
+  ) %>%
+  tab_options(
+    table.border.top.width = px(2),
+    table.border.bottom.width = px(2),
+    table.font.size = px(18),
+    column_labels.border.bottom.width = px(2),
+    data_row.padding = px(5),
+    column_labels.padding = px(5),
+    heading.title.font.size = px(25),
+    heading.subtitle.font.size = px(20)
+  ) %>%
+  tab_style(
+    style = list(
+      cell_borders(sides = "top", color = "gray85", style = "solid", weight = px(0.5)),
+      cell_borders(sides = "bottom", color = "gray85", style = "solid", weight = px(0.5)),
+      cell_fill(color = "lightgray")
+    ),
+    locations = cells_body(columns = vars(Year))
+  ) %>%
+  tab_style(
+    style = cell_fill(color = "lightgray"),
+    locations = cells_column_labels(columns = TRUE)
+  ) %>%
+  tab_style(
+    style = list(
+      cell_borders(sides = "left", color = "gray85", style = "solid", weight = px(0.5)),
+      cell_borders(sides = "right", color = "gray85", style = "solid", weight = px(0.5))
+    ),
+    locations = cells_body(rows = TRUE)
+  ) %>%
+  # data_color(
+  #   columns = lubridate::month(1:12,label = TRUE),  # Adjust to your actual month column names
+  #   na_color = "white",
+  #   colors = scales::col_bin(
+  #     bins = c(5.0001, 25),
+  #     palette = c("darkred","blue"),
+  #     domain = NULL
+  #   )
+  # ) |>
+         tab_style(
+    style = cell_fill(color = '#c92c3a'),
+    locations = cells_body(
+      columns = c(Jul),
+      rows = 9
+    )) |>
+  
+       tab_style(
+    style = cell_fill(color = '#c92c3a'),
+    locations = cells_body(
+      columns = c(Aug),
+      rows = 9
+    )) |>
+  
+    tab_source_note(
+    source_note = html(paste(
+html(paste("<span style='color:#c92c3a;'> Red </span> values exceed current limit of 5mg/L."))
+    )
+    ))
+
+
+gtsave(tn_tbl, "tn_tbl.png")
+knitr::include_graphics("tn_tbl.png")
+
+```
+
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+
+
+# Fecal coliform
+
+<br>
+
+```{r fecal}
+library(lubridate)
+
+# Ensure your results dataset and month variable are properly prepared
+bod_dat <- filter(results, varnum == 6739)
+bod_dat$month <- ymd(bod_dat$month)  # Convert to POSIXct if not already
+
+bod_dat <- mutate(bod_dat, Exceedance = case_when(
+    value > 100 & as.POSIXct(month) <= as.POSIXct("2023-07-30") |
+  value > 200 & as.POSIXct(month) > as.POSIXct("2023-07-31") ~ "Exceedance",
+  TRUE ~ "None"
+))
+
+limit_labels <- data.frame(
+  start = (c(ymd("2012-11-15"), ymd("2019-08-01"))),
+  end = (c(ymd("2024-03-30"), ymd("2024-05-01"))),
+  y = c(75, 200),
+  label = c("     Historic Limit \n (100 CFU/100mL)", "     Current Limit \n (200 CFU/100mL)")
+)
+
+ggplot(data = bod_dat) +
+  geom_line(aes(x = month, y = value)) +
+  geom_point(aes(x = month, y = value, color = Exceedance), size = 2) +
+  geom_segment(
+    x = min(bod_dat$month),
+    xend = ymd("2023-07-15"),
+    y = 100,
+    yend = 100,
+    color = "#c92c3a",
+    linetype  = "dashed"
+  ) +
+    geom_segment(
+    x= ymd("2024-10-01"),
+    xend = ymd("2023-08-01"),
+    y = 200,
+    yend = 200,
+    color = "#c92c3a",
+    linetype  = "dashed"
+  ) +
+  geom_segment(
+    x = ymd("2023-08-01"),
+    xend = ymd("2022-10-01"),
+    y = 200,
+    yend = 230,
+    color = "black",
+    linetype  = "solid"
+  ) +
+  geom_text(data = limit_labels, aes(x = start, y = y, label = label), hjust = -0.1, vjust = -1) +
+
+  labs(title = "South Shore Effluent Fecal coliform Concentration",
+       subtitle = "Values represent monthly geometric means",
+       y = "Fecal coliform (CFU/100mL)",
+       x = "") +
+  theme_classic() +
+  #lets make the points gray if exceedance is no, yellow if historic, and dark red if current
+  scale_color_manual(values = c("#c92c3a","gray20"))+
+      theme(axis.text = element_text(size = 12),
+        title = element_text(size = 15),
+        axis.title = element_text(size = 13),
+        legend.position = "none") +
+   xlim(ymd("2008-12-15"), ymd("2024-08-30"))
+  
+  
+
+```
+
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+
+# Fecal coliform (cont.)
+
+<br>
+
+```{r fecal_tbl, fig.align = 'center'}
+
+fecal_tbl <- results |>
+  mutate(Year =year(month),
+         Month = month(month, label = TRUE)) |>
+  filter(parameter_name == "Fecal Coliform" ) |>
+  mutate(Value = round(value, digits = 2)) |>
+  select(Year, Month, Value) |>
+  pivot_wider(names_from = Month, values_from = Value) |>
+  gt() %>%
+  tab_header(
+    title = "South Shore Effluent Fecal coliform Concentration",
+    subtitle  = "Values represent geometric monthly means",
+  ) %>%
+  tab_options(
+    table.border.top.width = px(2),
+    table.border.bottom.width = px(2),
+    table.font.size = px(18),
+    column_labels.border.bottom.width = px(2),
+    data_row.padding = px(5),
+    heading.title.font.size = px(25),
+    heading.subtitle.font.size = px(20),
+    column_labels.padding = px(5)
+  ) %>%
+  tab_style(
+    style = list(
+      cell_borders(sides = "top", color = "gray85", style = "solid", weight = px(0.5)),
+      cell_borders(sides = "bottom", color = "gray85", style = "solid", weight = px(0.5)),
+      cell_fill(color = "lightgray")
+    ),
+    locations = cells_body(columns = vars(Year))
+  ) %>%
+  tab_style(
+    style = cell_fill(color = "lightgray"),
+    locations = cells_column_labels(columns = TRUE)
+  ) %>%
+  tab_style(
+    style = list(
+      cell_borders(sides = "left", color = "gray85", style = "solid", weight = px(0.5)),
+      cell_borders(sides = "right", color = "gray85", style = "solid", weight = px(0.5))
+    ),
+    locations = cells_body(rows = TRUE)
+  ) %>%   
+    tab_style(
+    style = cell_fill(color = '#c92c3a'),
+    locations = cells_body(
+      columns = c(Jul),
+      rows = 9
+    )) |>
+  
+  tab_style(
+    style = cell_fill(color = '#c92c3a'),
+    locations = cells_body(
+      columns = c(Aug),
+      rows = 10
+    )) |>
+    
+     tab_style(
+    style = cell_fill(color = '#c92c3a'),
+    locations = cells_body(
+      columns = c(Oct),
+      rows = 11
+    )) |>
+       tab_style(
+    style = cell_fill(color = '#c92c3a'),
+    locations = cells_body(
+      columns = c(Aug),
+      rows = 13
+    )) |>
+       tab_style(
+    style = cell_fill(color = '#c92c3a'),
+    locations = cells_body(
+      columns = c(Aug),
+      rows = 14
+    )) |>
+       tab_style(
+    style = cell_fill(color = '#c92c3a'),
+    locations = cells_body(
+      columns = c(May),
+      rows = 15
+    )) |>
+       tab_style(
+    style = cell_fill(color = '#c92c3a'),
+    locations = cells_body(
+      columns = c(Jul),
+      rows = 15
+    )) |>
+       tab_style(
+    style = cell_fill(color = '#c92c3a'),
+    locations = cells_body(
+      columns = c(Aug),
+      rows = 15
+    )) |>
+    tab_source_note(
+    source_note = html(paste(
+html(paste("<span style='color:#c92c3a;'> Red </span> values exceed contract limit."))
+    )
+    ))
+
+gtsave(fecal_tbl, "fecal_tbl.png")
+knitr::include_graphics("fecal_tbl.png")
+
+```
+
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+
+
+
+# Appendix - Missing Data
+
+<span style = "font-size:16px">
+Missing data observations are noted as follows:
+
+-   <b> TP: </b>  02/28/2009, 04/16/2009, 05/31/2009, 09/02/2009, 09/03/2009, 09/07/2009, 09/08/2009
+
+-   <b> TSS: </b> 02/28/2009, 04/16/2009, 0/31/2009
+
+-   <b> BOD5: </b> 02/28/2009, 04/16/2009, 05/30/2009, 05/31/2009, 07/03/2009 - 07/05/2009, 04/22/2012, 12/26/2012 12/29/2012, 05/03/2014, 05/15/2014, 06/01/2014 - 06/07/2014, 05/26/2018,  01/23/2019, 01/25/2019, 02/21/2022, 12/02/2023
+
+- <b> NH3-N: </b> 01/01/2009 - 01/07/2009, 01/30/2009, 01/31/2009, 05/312009, 08/14/2009 - 08/30/2009, 08/01/2012, 02/25/2017
+
+-   <b> Fecal Coliform: </b> 10/23/2009, 12/25/2009, 03/13/2010, 03/08/2011, 04/07/2011, 05/11/2011, 02/05/2012, 02/08/2012, 02/09/2012, 02/12/2012, 04/04/2012, 12/09/2012, 05/29/2013, 07/15/2013, 12/10/2015, 03/27/2016, 04/16/2016, 07/03/2016, 07/04/2016, 08/03/2016, 04/28/2017, 08/25/2017, 01/27/2019 - 01/30/2019, 03/17/209, 12/06/2021
+
+</span>
+
+<br>
+
+
